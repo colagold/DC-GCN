@@ -1,6 +1,3 @@
 # DC-GCN
 
-## 文件
-
-- 源代码
-- 数据
+**Here we will give the code implementation of DC-GCN, all Baseline experimental results and the corresponding hyperparameter settings.**
