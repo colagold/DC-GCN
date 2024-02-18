@@ -42,11 +42,10 @@ class RSCompleteRatingDataSet:
 
 class ModelAbstract:
     def __init__(self):
-        self.checkpoint_path = None # 存放模型检查点的位置，如果没有指定则使用内存缓存存放。
-        self.tensorboard_path=None # 存放训练过程中的tensorboard数据，scenarion.py 文件会自动配置该变量
-        self.cache_dir=None # 用于存放算法的中间结果或者预处理结果的目录（例如：log/lr-iris/cache/），由ScenarioAbstract自动生成.
-                            # 例如：GCN算法每次载入数据都需要计算一个拉普拉斯矩阵，尽管模型参数可以任意改变，但是只要数据不变该矩阵就不会变化，
-                            #      只要将中间结果存入该目录，模型修改参数后，也可以直接读取该目录下的文件。
+        self.checkpoint_path = None
+        self.tensorboard_path=None
+        self.cache_dir=None
+
         self.resume_state=True # 如果为False，则默认会读取 self.checkpoint_path+".last_state"文件，并从此开始训练。
                             # 该参数的意义是处理训练终端，然后重新训练。 要求 over_write = False，否则每次运行都是从新训练。
     def train(self, ds,valid_ds = None,test_ds=None,valid_funcs=None,cb_progress=lambda x:None):

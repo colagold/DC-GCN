@@ -1,7 +1,3 @@
-# -*- coding: utf-8 -*-
-# @Time    : 2024/1/29 16:27
-# @Author  : colagold
-# @FileName: metrics.py
 
 import logging
 import math

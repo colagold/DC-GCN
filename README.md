@@ -1,17 +1,20 @@
-# Revisiting Explicit Recommendation with DC-GCN:Divide-and-Conquer Graph Convolution Network
-**Here we will give the code implementation of DC-GCN, all Baseline experimental results and the corresponding hyperparameter settings.**
+# Revisiting Explicit Recommendation with DC-GCN: Divide-and-Conquer Graph Convolution Network
+
+
+
+**Here we will give the code implementation of DC-GCN, all Baseline experimental results.**
 
 
 
 ## Filefolder
 
-- Result:Optimal results and corresponding optimal hyperparameter Settings
+- Result:Optimal results and corresponding optimal hyperparameter Settings.
 
-- DC-GCN:It's a project file which concretes implementation
+- DC-GCN:It's a project file which concretes implementation.
 
 ## Preparation
 
-Our code is based on PyTorch 1.13.0 and runnable for both windows and server. Required python packages:
+Our code is based on PyTorch 1.13.0 and runnable for both windows and linux. Required python packages:
 
 ```text
 numpy==1.23.5
