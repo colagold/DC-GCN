@@ -2,7 +2,9 @@
 import copy
 import io
 import json
+import math
 import pickle
+import random
 import types
 from time import time
 
@@ -19,6 +21,8 @@ from torch import nn, Tensor
 
 from trainer import TrainerBase
 import os
+import  warnings
+warnings.filterwarnings("ignore")
 
 def MSELoss(groud_truth,pred):
     return nn.MSELoss()(groud_truth,pred)
@@ -46,47 +50,40 @@ class ModelAbstract:
         self.tensorboard_path=None
         self.cache_dir=None
 
-        self.resume_state=True # 如果为False，则默认会读取 self.checkpoint_path+".last_state"文件，并从此开始训练。
-                            # 该参数的意义是处理训练终端，然后重新训练。 要求 over_write = False，否则每次运行都是从新训练。
+        self.resume_state=True
     def train(self, ds,valid_ds = None,test_ds=None,valid_funcs=None,cb_progress=lambda x:None):
-        # 训练函数，负责定义模型，损失函数，确定训练方法
+
         return None
 
     def predict(self,ds,cb_progress=lambda x:None):
-        # 根据输入的ds，输出预测结果。返回结果的形式由protocol中的test函数确定
+
         return None
 
     def save(self,filepath:str=None):
         #  save model to a file
-        # 当模型根据验证集找到更优结果后，会将模型状态存入filepath中。
         return None
 
     def load(self,filepath:str=None):
         #  load model from a file
-        #  当无法找到更优的结果则会调用该函数，将之前保存的最优模型状态取出作为最终状态。
         return None
 
     def opt_one_batch(self, batch) -> dict:
         """
-        在batch数据上完成一次训练，并返回损失值，
-        返回值为一个字典，其中必须包含”loss“关键字，代表了该batch数据下计算所得的损失值，如果需要返回其他值可以自行加入该字典
-        返回到字典中的数据都将写入tensorboard中
+
         """
 
     def eval_data(self, dataloader, metric, inbatch) -> float:
         """
-        负责评估所训练的模型在数据集上的性能。
-        根据传入的数据（可能是训练集，也可能是测试集，由模型的train函数决定），利用metric函数完成一次验证，并返回指标计算的结果。
+
         """
 
     def class_name(self):
-        # 模型名字
         return str(self.__class__)[8:-2].split('.')[-1].lower()
 
     def __str__(self):
         parameters_dic=copy.deepcopy(self.__dict__)
         parameters=get_parameters_js(parameters_dic)
-        return dict_to_yamlstr({self.class_name():parameters}) # 输出模型名字+参数
+        return dict_to_yamlstr({self.class_name():parameters})
 
     def __getitem__(self, key):
         if isinstance(key,str) and hasattr(self,key):
@@ -114,15 +111,12 @@ def get_parameters_js(js) -> dict:
     if isinstance(js, (dict)):
         ans = dict([(k,get_parameters_js(v)) for (k,v) in js.items() if not isinstance(v, types.BuiltinMethodType)])
     elif isinstance(js, (float, int, str)):
-        # js[k] 是一个普通参数，整数，浮点数，字符串
         ans = js
     elif isinstance(js, (list, set, tuple)):
-        # js[k] 是一个数组
         ans = [get_parameters_js(x) for x in js]
     elif js is None:
         ans = None
     else:
-        # js[k] 是一个对象
         ans = {get_full_class_name(js): get_parameters_js(js.__dict__)}
     return ans
 
@@ -151,16 +145,9 @@ class ExplicitRecAbstract(ModelAbstract):
 
     def opt_one_batch(self, batch) -> dict:
         """
-        在batch数据上完成一次训练，并返回损失值，
-        返回值为一个字典，其中必须包含”loss“关键字，代表了该batch数据下计算所得的损失值，如果需要返回其他值可以自行加入该字典
-        返回到字典中的数据都将写入tensorboard中
+
         """
 
-        # 在train函数中，利用RSCompleteRatingDataset对数据进行了转换，变成了 (uid，iid，rating)的元组，
-        # 在经过torch的Dataloader将之转化为batch，则 batch的数据结构为：
-        #              【(uid1,uid2,uid3,..), (iid1,iid2,iid3,...),(rating1,rating2,rating3,...)】
-
-        # 先将batch中的所有数据放到模型指定的设备上，然后再取出
         uids, pos_iids, neg_iids = (x.to(self.device) for x in batch)
 
         pos_scores, neg_scores = self.model.get_rating(uids, pos_iids, neg_iids)
@@ -176,12 +163,11 @@ class ExplicitRecAbstract(ModelAbstract):
 
     def eval_data(self, dataloader, metric) -> float:
         """
-        负责评估所训练的模型在数据集上的性能。
-        根据传入的数据（可能是训练集，也可能是测试集，由模型的train函数决定），利用metric函数完成一次验证，并返回指标计算的结果。
+
         """
         Y = []
         Pred = []
-        users = []  # 因为 推荐算法的评价函数的输入是csr_matrix,这里需要记录用户id 和商品id，方便后面重构矩阵
+        users = []
         items = []
 
         for uids, iids, ratings in dataloader:
@@ -202,10 +188,10 @@ class ExplicitRecAbstract(ModelAbstract):
         Y = sp.csr_matrix((Y, (users, items)))
         Pred = sp.csr_matrix((Pred, (users, items)))
 
-        return -metric(Y, Pred)  #默认先真实标签再预测值
+        return -metric(Y, Pred)  #
 
     def save(self, filepath=None):
-        if filepath is None:  # 需要存储的文件不存在
+        if filepath is None:  #
             filepath = self.checkpoint_path + ".last_model_state"
         with open(filepath, 'wb') as fout:
             state = {'model': self.model.state_dict(),
@@ -215,7 +201,7 @@ class ExplicitRecAbstract(ModelAbstract):
             torch.save(state, fout)
 
     def load(self, filepath=None):
-        if filepath is None:  # 需要存储的文件不存在
+        if filepath is None:  #
             filepath = self.checkpoint_path + ".last_model_state"
         if not os.path.isfile(filepath):
             return
@@ -238,53 +224,49 @@ class BasicModel(nn.Module):
 
 
 class dcgcn(BasicModel):
-    def __init__(self,num_users,num_items,num_ratings,latent_dim,n_layers,emb_dropout,graph,train_rating,rating_group):
+    def __init__(self, config):
         super().__init__()
-        self.n_layers = n_layers
-        self.emb_dropout = emb_dropout
-        self.num_users=num_users
-        self.num_items=num_items
+        self.config = config
+        self.n_layers = config["n_layers"]
+        self.emb_dropout = config["emb_dropout"]
+        self.num_users = config["num_users"]
+        self.num_items = config["num_items"]
+        self.is_mlp = config["mlp"]
+        self.agg = config["agg"]
+        self.is_mask = config["is_mask"]
         self.embedding_user = torch.nn.Embedding(
-            num_embeddings=num_users, embedding_dim=latent_dim)
+            num_embeddings=config["num_users"], embedding_dim=config["latent_dim"])
         self.embedding_item = torch.nn.Embedding(
-            num_embeddings=num_items, embedding_dim=latent_dim)
+            num_embeddings=config["num_items"], embedding_dim=config["latent_dim"])
         self.embedding_rating = torch.nn.Embedding(
-            num_embeddings=num_ratings, embedding_dim=latent_dim) #为所有评分生成emb
+            num_embeddings=config["num_ratings"], embedding_dim=config["latent_dim"])
         self.embedding_rating.requires_grad = False
 
-        nn.init.normal_(self.embedding_user.weight, std=0.1)
-        nn.init.normal_(self.embedding_item.weight, std=0.1)
-        nn.init.normal_(self.embedding_rating.weight, std=0.1)
-            #world.cprint('use NORMAL distribution initilizer')
+        nn.init.normal_(self.embedding_user.weight, std=0.01)
+        nn.init.normal_(self.embedding_item.weight, std=0.01)
+        nn.init.normal_(self.embedding_rating.weight, std=0.01)
+        # world.cprint('use NORMAL distribution initilizer')
 
-        self.dropout = nn.Dropout(p=emb_dropout)
-
-        self.f = nn.Sigmoid()
-        self.Graph = graph
-        self.Rating_Graph=train_rating
-
-        # self.dropout_layer=nn.Dropout(p=keep_prob)
+        self.dropout = nn.Dropout(p=config["emb_dropout"])
 
 
+        self.user_t = nn.init.xavier_uniform_(torch.empty(self.num_users, 1))
+        self.item_t = nn.init.xavier_uniform_(torch.empty(self.num_items, 1))
+        self.user_t = nn.Parameter(self.user_t, requires_grad=True)
+        self.item_t = nn.Parameter(self.item_t, requires_grad=True)
 
 
-        #### 得到每个评分的稀疏矩阵
-        self.rating_group_tensor=rating_group
 
-        #生成一个掩码，决定哪些行要丢弃,随机将embedding置为0
-        # self.mask = (torch.rand(self.user_id.shape) > self.emb_dropout).float()
-        # self.item_mask = (torch.rand(self.embedding_item.num_embeddings) > self.emb_dropout).float().cuda()
+        self.rating_group_tensor = config["rating_group_dict"]
 
-        ####
-
-        self.aggre_rating=nn.Sequential(
-            nn.Linear(in_features=latent_dim*2,out_features=128),
+        self.aggre_rating = nn.Sequential(
+            nn.Linear(in_features=config["latent_dim"] * 2, out_features=64),
             nn.LeakyReLU(),
-            nn.Linear(in_features=128,out_features=64)
+            nn.Linear(in_features=64, out_features=64)
         )
 
         self.predict_layer = nn.Sequential(
-            nn.Linear(in_features=latent_dim * 2, out_features=64),
+            nn.Linear(in_features=config["latent_dim"] * 2, out_features=64),
             nn.LeakyReLU(),
             nn.Linear(in_features=64, out_features=32),
             nn.LeakyReLU(),
@@ -292,17 +274,25 @@ class dcgcn(BasicModel):
         )
 
         self.atten_weight_list = torch.nn.ModuleList()
-        for rating in self.rating_group_tensor.keys():
+        for _ in self.rating_group_tensor.keys():  # 不共享参数，两层的mlp
             self.atten_weight_list.append(
                 nn.Sequential(
-                    nn.Linear(in_features=latent_dim * 2, out_features=latent_dim),
+                    nn.Linear(in_features=config["latent_dim"] * 2, out_features=config["latent_dim"]),
                     nn.LeakyReLU(),
-                    nn.Linear(in_features=latent_dim, out_features=latent_dim),
+                    nn.Linear(in_features=config["latent_dim"], out_features=config["latent_dim"]),
                     # nn.LeakyReLU(),
                 )
             )
-
-
+        self.agg_layer = nn.Sequential(
+            nn.Linear(in_features=config["latent_dim"] * 5, out_features=256),
+            nn.LeakyReLU(),
+            nn.Linear(in_features=256, out_features=128),
+            nn.LeakyReLU(),
+            nn.Linear(in_features=128, out_features=64)
+        )
+        self.dev = 'cpu'
+        if torch.cuda.is_available():
+            self.dev = 'cuda'
 
     def __dropout_x(self, x, keep_prob):
         size = x.size()
@@ -315,7 +305,6 @@ class dcgcn(BasicModel):
         g = torch.sparse.FloatTensor(index.t(), values, size)
         return g
 
-
     def computer(self):
         """
         propagate methods for lightGCN
@@ -324,47 +313,94 @@ class dcgcn(BasicModel):
         items_emb = self.embedding_item.weight
         rating_emb = self.embedding_rating.weight
 
-        # 随机dropout
-        users_emb = self.dropout(users_emb)
-        items_emb = self.dropout(items_emb)
-        #rating_emb=self.dropout(rating_emb)
+        embs = []  # 用于存储初始表示以及每个评分场景下的表示
 
+        for key, rating_tensor_graph in self.rating_group_tensor.items():
+            key = int(key)
+            # 获得未加权的表示，用于图卷积
+            all_embs = torch.cat([users_emb, items_emb], dim=0)
+            # 评分表示
+            t_rating_emb = rating_emb[int(key)].repeat(all_embs.shape[0], 1)
+            # 评分表示与节点表示拼接
+            t_cat = torch.cat([all_embs, t_rating_emb], dim=1)
+            # 使用mlp融合，得到新的表示(能否有新的概念)
+            all_embs = self.atten_weight_list[int(key) - 1](t_cat)
+            users_emb_rating, items_emb_rating = torch.split(all_embs, [self.num_users, self.num_items])
 
-        #all_embs = torch.cat([users_emb, items_emb,rating_emb],dim=1)
-        #   torch.split(all_emb , [self.num_users, self.num_items])
-        all_embs = torch.cat([users_emb, items_emb])
-        embs = [all_embs]
+            # 初始化用户权重
+            u_weight = key * self.user_t.to(self.dev) * torch.pow(1 - self.user_t, 0).to(self.dev)  # 为每个用户初始化邻域聚合权重
+            # 初始化项目权重
+            i_weight = key * self.item_t.to(self.dev) * torch.pow(1 - self.item_t, 0).to(self.dev)  # 为每个项目初始化邻域聚合权重
+            gcn_ego_embeddings = torch.cat([u_weight * users_emb_rating, i_weight * items_emb_rating],
+                                           dim=0)  # 层级权重，第0层表示
+            # 保存每一层卷积的表示
+            gcn_emb_per_rating = [gcn_ego_embeddings]
+            mask_history = [all_embs]
+            # 每个子图上进行图卷积
+            for layer in range(self.n_layers):
+                if layer >= 2:
+                    mask_ratio = 1 - math.log(1 / layer + 1)
+                else:
+                    mask_ratio = 0
+                mask_tensor = self.generate_mask_matrix(self.config["latent_dim"], mask_ratio)
+                mask_tensor = mask_tensor.to(self.config['device'])
+                k = layer + 1  # 获取层数
+                all_embs = torch.sparse.mm(rating_tensor_graph, all_embs)  # 卷积
 
+                all_embs = torch.mm(all_embs, torch.diag(mask_tensor)) \
+                           + torch.mm(mask_history[-1], torch.diag(1 - mask_tensor))  # 掩码
+                mask_history.append(all_embs)
 
-        for layer in range(self.n_layers):
-
-            ## 评分矩阵聚合
-            all_rating_agg_emb=[]
-            for key, rating_tensor_graph in self.rating_group_tensor.items():
-                t_rating_emb = rating_emb[int(key)].repeat(all_embs.shape[0], 1)
-                t_cat = torch.cat([all_embs, t_rating_emb], dim=1)
-
-                t_all_emb=self.atten_weight_list[int(key)-1](t_cat)
-                all_rating_agg_emb.append(torch.sparse.mm(rating_tensor_graph, t_all_emb))
-
-            #求和
-            #all_embs = torch.stack(all_rating_agg_emb, dim=0).sum(dim=0)
-            #求均值
-
-            all_embs = torch.mean(torch.stack(all_rating_agg_emb, dim=0), dim=0)
-            embs.append(all_embs) #
-        embs = torch.stack(embs, dim=1)
-        # print(embs.size())
-        light_out = torch.mean(embs, dim=1)
+                user_embedds, item_embedds = torch.split(all_embs, [self.num_users, self.num_items],
+                                                         dim=0)  # 得到卷积之后的用户和商品表示
+                # 每一层加权
+                user_embedds = key * user_embedds * (
+                            self.user_t.to(self.dev) * torch.pow(1 - self.user_t, k).to(self.dev))
+                item_embedds = key * item_embedds * (
+                            self.item_t.to(self.dev) * torch.pow(1 - self.item_t, k).to(self.dev))
+                # 每一层加权后的表示
+                weight_embeddings_cur = torch.cat([user_embedds, item_embedds], dim=0)
+                gcn_emb_per_rating.append(weight_embeddings_cur)
+            # 每一层GCN求和
+            rating_embs = torch.sum(torch.stack(gcn_emb_per_rating, dim=1), dim=1)
+            embs.append(rating_embs)  #
+        if self.agg == "mean":
+            embs = torch.stack(embs, dim=1)
+            light_out = torch.mean(embs, dim=1)
+        elif self.agg == "sum":
+            embs = torch.stack(embs, dim=1)
+            light_out = torch.mean(embs, dim=1)
+        elif self.agg == "mlp":
+            embs = torch.cat(embs, dim=1)
+            light_out = self.agg_layer(embs)
         users, items = torch.split(light_out, [self.num_users, self.num_items])
         return users, items
 
-    def getUsersRating(self, users):
-        all_users, all_items = self.computer()
-        users_emb = all_users[users.long()]
-        items_emb = all_items
-        rating = self.f(torch.matmul(users_emb, items_emb.t()))
-        return rating
+    def generate_mask_matrix(self, length, mask_rate):
+        # 全1矩阵
+        mask_matrix = torch.ones(1, length)
+
+        # 计算掩码的数量
+        num_masked = int(mask_rate * length)
+
+        # 随机选择需要掩码的位置
+        mask_indices = random.sample(range(length), num_masked)
+
+        # 将选择的位置设置为0
+        for idx in mask_indices:
+            mask_matrix[0, idx] = 0
+
+        return mask_matrix[0]
+
+    def get_mask_matrix(self, mask_ratio, latent_dim):
+        tensor = torch.ones(1, latent_dim)
+        # 创建一个与输入tensor形状相同的随机0-1矩阵
+        random_mask = torch.rand(tensor.shape)
+        # 根据给定的概率生成置0的掩码
+        zero_mask = random_mask < mask_ratio
+        # 将tensor中对应位置置为0
+        tensor[zero_mask] = 0
+        return tensor[0]
 
     def predict(self, users, items):
         users_emb = self.embedding_user.weight[users.long()]
@@ -377,30 +413,22 @@ class dcgcn(BasicModel):
         # pred = (users_emb * items_emb).sum(1, keepdim=True)
         return prediction
 
-
-    def forward(self, users, pos_items,neg_items=None):
+    def forward(self, users, items):
         # compute embedding
         all_users, all_items = self.computer()
         # print('forward')
         # all_users, all_items = self.computer()
         users_emb = all_users[users.long()]
-        pos_emb = all_items[pos_items.long()]
+        pos_emb = all_items[items.long()]
 
+        if self.is_mlp:
+            embd = torch.cat([users_emb, pos_emb], dim=1)
 
-        embd = torch.cat([users_emb, pos_emb], dim=1)
-
-        embd = self.predict_layer(embd)
-        prediction = embd.flatten()
-        if neg_items is None:
-            # pred = (users_emb * pos_emb).sum(1)
-            return prediction
-        neg_emb = all_items[neg_items.long()]
-        embd = torch.cat([users_emb, neg_emb], dim=1)
-        embd = self.predict_layer(embd)
-        #
-        neg_prediction = embd.flatten()
-        # neg_prediction = (users_emb * neg_emb).sum(1)
-        return prediction, neg_prediction
+            embd = self.predict_layer(embd)
+            prediction = embd.flatten()
+        else:
+            prediction = (users_emb * pos_emb).sum(1)
+        return prediction
 
 
 class Weighted_MSELoss(nn.Module):
@@ -413,31 +441,28 @@ class Weighted_MSELoss(nn.Module):
 class DC_GCN(ExplicitRecAbstract):
     def __init__(self):
         self.n_layers = 3
-        self.latent_dim=64
-        self.batch_size=4096
-        self.lr=0.001
-        self.lambd=0.01
-        self.graph_noise=0
-        self.emb_dropout=0
-        self.rating_gate=5
-        self.nepochs=10000
-        self.split=False
-        self.Graph=None
-        self.folds=100
-        self.loss="MSE"
-        #self.tensorboard_path="cache/"
+        self.latent_dim = 64
+        self.batch_size = 4096
+        self.lr = 0.001
+        self.lambd = 0.01
+        self.graph_noise = 0
+        self.emb_dropout = 0
+        self.rating_gate = 5
+        self.nepochs = 10000
+        self.mlp = True
+        self.is_mask = True
+        self.loss = "MSE"
+        self.agg = "mlp"
         self.device = 'cpu'
         if torch.cuda.is_available():
             self.device = 'cuda'
 
     def train(self, ds, valid_ds=None, test_ds=None, valid_func=None, cb_progress=lambda x: None):
         assert sp.isspmatrix_csr(ds)
-        self.n, self.m = ds.shape
-
-        self.DataSample=RSCompleteRatingDataSet # (uid,iid,rating)
+        self.num_users, self.num_items = ds.shape
         self.criterion = MSELoss
         # train_loader = DataLoader(self.DataSample(ds), batch_size=self.batch_size, shuffle=True)
-        train_loader = DataLoader(self.DataSample(ds), batch_size=self.batch_size, shuffle=True)
+        train_loader = DataLoader(RSCompleteRatingDataSet(ds), batch_size=self.batch_size, shuffle=True)
         if valid_ds is not None:
             valid_loader = DataLoader(RSCompleteRatingDataSet(valid_ds), batch_size=self.batch_size)
         else:
@@ -447,19 +472,21 @@ class DC_GCN(ExplicitRecAbstract):
         else:
             test_loader = None
 
-        rating_group_dict = self.split_rating_csr(ds,self.graph_noise)
-        graph = self.getSparseGraph(ds)
+        #self.node_deg = get_node_deg(ds)
 
-        if not os.path.isdir(self.tensorboard_path):
-            os.makedirs(self.tensorboard_path)
-        rating_graph=_convert_sp_mat_to_sp_tensor(ds).to(self.device)
-        nums_rating=int(max(ds.data))+1
+
+        self.rating_group_dict = self.split_rating_csr(ds, self.graph_noise)
+        self.graph = self.getSparseGraph(ds)
+
+
+        self.rating_graph = _convert_sp_mat_to_sp_tensor(ds).to(self.device)
+        self.num_ratings = int(max(ds.data)) + 1
         # 按照评分划分，生成评分矩阵
 
-        self.model =dcgcn(self.n,self.m,nums_rating,self.latent_dim,self.n_layers,self.emb_dropout,graph,rating_graph,rating_group_dict)
+        self.model = dcgcn(self.__dict__)
         self.model.to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.lambd)
-         #
+        #
         writer = SummaryWriter(self.tensorboard_path)  # 收集训练过程中的所有数据
 
         # 构建训练器，trainer，自动根据训练数据、验证数据和验证函数进行验证，并将中间过程记录到writer中
@@ -467,39 +494,32 @@ class DC_GCN(ExplicitRecAbstract):
         trainer = TrainerBase(self.nepochs, valid_on_train_set=False)
         trainer.train(self, train_loader, valid_loader, test_loader, valid_func, writer)
 
-    def getSparseGraph(self,ds):
+    def getSparseGraph(self, ds):
         print("generating adjacency matrix")
         s = time()
-        adj_mat = sp.dok_matrix((self.n + self.m, self.n + self.m), dtype=np.float32)
+        adj_mat = sp.dok_matrix((self.num_users + self.num_items, self.num_users + self.num_items), dtype=np.float32)
         adj_mat = adj_mat.tolil()
         # R = self.UserItemNet.tolil()
-        #R = ds.tolil()
+        # R = ds.tolil()
         R = ds.tocoo()
-        # R.data[:] = R.data[:] /3
-        adj_mat[:self.n, self.n:] = R
-        adj_mat[self.n:, :self.n] = R.T
+        R.data[:] = 1
+        adj_mat[:self.num_users, self.num_users:] = R
+        adj_mat[self.num_users:, :self.num_users] = R.T
         adj_mat = adj_mat.todok()
-        #adj_mat = adj_mat + sp.eye(adj_mat.shape[0])
-
+        # adj_mat = adj_mat + sp.eye(adj_mat.shape[0])
         rowsum = np.array(adj_mat.sum(axis=1))
         d_inv = np.power(rowsum, -0.5).flatten()
         d_inv[np.isinf(d_inv)] = 0.
         d_mat = sp.diags(d_inv)
-
         norm_adj = d_mat.dot(adj_mat)
         norm_adj = norm_adj.dot(d_mat)
-        #norm_adj = adj_mat.tocsr()
+        # norm_adj = adj_mat.tocsr()
         norm_adj = norm_adj.tocsr()
         end = time()
         print(f"costing {end - s}s, saved norm_mat...")
-
-        if self.split == True:
-            self.Graph = self._split_A_hat(norm_adj)
-            print("done split matrix")
-        else:
-            self.Graph = _convert_sp_mat_to_sp_tensor(norm_adj)
-            self.Graph = self.Graph.coalesce().to(self.device)
-            print("don't split the matrix")
+        self.Graph = _convert_sp_mat_to_sp_tensor(norm_adj)
+        self.Graph = self.Graph.coalesce().to(self.device)
+        print("don't split the matrix")
         return self.Graph
 
 

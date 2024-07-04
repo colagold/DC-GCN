@@ -10,8 +10,7 @@ import numpy as np
 import zipfile
 import yaml
 from collections import Counter
-from metrics import MAE,NDCG5,NDCG10,RECALL5,RECALL10,Precision5,Precision10
-
+from metrics import *
 
 data_dir='data/Amazon_CDs_and_Vinyl10.zip'
 model_config='DC_GCN.yaml'
@@ -179,26 +178,6 @@ def parse_objects(filedict):
 
     return scenario, protocol, algorithm, metrics
 
-def parse_data(data_path):
-
-    df = None
-    if os.path.isfile(data_path):
-        z = zipfile.ZipFile(data_path, "r")
-        for filename in z.namelist():
-            if filename == 'ratings.csv':
-                df = pd.read_csv(z.open(filename), header=None)
-        assert df is not None, "not found ratings.csv文件"
-
-    else:
-        df = pd.read_table(data_path + "/ratings.csv", header=None)
-
-
-    uids = df.iloc[:, 0].values
-    iids = df.iloc[:, 1].values
-    rates = df.iloc[:, 2].values
-    ds = sp.csr_matrix((rates, (uids, iids))
-                       ,dtype=np.float32)
-    return ds
 
 def merge( datalist,data_shape):
     data = datalist[0]
@@ -210,160 +189,6 @@ def merge( datalist,data_shape):
     return sp.csr_matrix((data[2], (data[0], data[1])), shape=data_shape)
 
 
-def get_noise_train_csr(n_user,coo,train_set,validate_set,test_set,split_arrays):
-    all_items = set(coo.col)
-    tr_noise_samples = ([], [], [])
-    construct_train_data = ([], [], [])
-    cold_start_data = [([], [], []), ([], [], []), ([], [], [])]
-    csr_data=train_set
-    train_lil=train_set.tolil()
-    np.random.seed(1)
-    ratings = set(train_set.data)
-    for u in range(n_user):
-        tr_items = set(train_lil.rows[u])
-        # 采样
-        if u in split_arrays[0]:
-            construct_tr_item = np.random.choice(list(tr_items), size=np.random.randint(1,6), replace=False)
-            construct_train_data[0].extend([u] * len(construct_tr_item))
-            construct_train_data[1].extend(construct_tr_item)
-            for i in construct_tr_item:
-                construct_train_data[2].append(csr_data[u, i])
-
-            cold_test_item = list(tr_items - set(construct_tr_item))
-            cold_start_data[0][0].extend([u] * len(cold_test_item))
-            cold_start_data[0][1].extend(cold_test_item)
-            for i in cold_test_item:
-                cold_start_data[0][2].append(csr_data[u, i])
-
-        if u in split_arrays[1]:
-            construct_tr_item = np.random.choice(list(tr_items), size=np.random.randint(6,11), replace=False)
-            construct_train_data[0].extend([u] * len(construct_tr_item))
-            construct_train_data[1].extend(construct_tr_item)
-            for i in construct_tr_item:
-                construct_train_data[2].append(csr_data[u, i])
-
-            cold_test_item = list(tr_items - set(construct_tr_item))
-            cold_start_data[1][0].extend([u] * len(cold_test_item))
-            cold_start_data[1][1].extend(cold_test_item)
-            for i in cold_test_item:
-                cold_start_data[1][2].append(csr_data[u, i])
-
-        if u in split_arrays[2]:
-            construct_tr_item = np.random.choice(list(tr_items), size=np.random.randint(16,21), replace=False)
-            construct_train_data[0].extend([u] * len(construct_tr_item))
-            construct_train_data[1].extend(construct_tr_item)
-            for i in construct_tr_item:
-                construct_train_data[2].append(csr_data[u, i])
-
-            cold_test_item = list(tr_items - set(construct_tr_item))
-            cold_start_data[2][0].extend([u] * len(cold_test_item))
-            cold_start_data[2][1].extend(cold_test_item)
-            for i in cold_test_item:
-                cold_start_data[2][2].append(csr_data[u, i])
-
-        val_items = set(validate_set.rows[u])
-        te_items = set(test_set.rows[u])
-        if len(tr_items) == 0:
-            continue
-        if len(val_items) == 0 and len(te_items) == 0:
-            continue  #
-
-        neg_items = all_items - val_items - te_items - tr_items
-        sample_num = min(len(neg_items), 0)
-        if sample_num == 0: continue
-        noise_users = [u] * sample_num
-        if len(te_items) > 0:
-            noise_item = np.random.choice(list(neg_items), sample_num, replace=False)
-            tr_noise_samples[0].extend(noise_users)
-            tr_noise_samples[1].extend(noise_item)
-            tr_noise_samples[2].extend(np.random.choice(list(ratings), size=sample_num, replace=True))
-
-
-    tr_noise_set = sp.csr_matrix((tr_noise_samples[2], (tr_noise_samples[0], tr_noise_samples[1])), csr_data.shape,
-                                 dtype=np.float32)
-    sample_csr = sp.csr_matrix((construct_train_data[2], (construct_train_data[0], construct_train_data[1])),
-                               csr_data.shape, dtype=np.float32)
-    return tr_noise_set,sample_csr,cold_start_data
-
-def get_bias_group(n_item:int,train_item_count:dict,test_list:list,data_shape):
-    sample_num = int(n_item * 0.1)
-    head, tail = list(train_item_count.keys())[:sample_num], list(train_item_count.keys())[
-                                                                    sample_num:]
-    bias_group = [[], []]
-    for i in test_list:
-        if i[1] in head:
-            bias_group[0].append(i)
-        if i[1] in tail:
-            bias_group[1].append(i)
-
-    for i, data in enumerate(bias_group):
-        #logging.info(f"bias interaction num:{len(data)}")
-        bias_group[i] = merge([data],data_shape)
-    return bias_group
-
-def split(data) -> tuple:
-
-    # data.data[:]=1
-    data = data.tocoo()
-    csr_data=data.tocsr()
-    data01 = copy.deepcopy(data)
-    data_shape = data.shape
-
-
-    entries = list(zip(data01.row, data01.col, data01.data))
-    np.random.seed(1)
-    np.random.shuffle(entries)
-    N = len(entries)
-    train_percent=0.8
-    valid_percent=0.1
-
-
-    train_list = entries[:int(N * train_percent)]
-    test_list = entries[
-                int(N * train_percent):int(N * (train_percent + valid_percent))]  # 10%测试：[0.8,0.9]
-    valid_list = entries[int(N * (train_percent + valid_percent)):]
-
-
-
-
-    coo=data
-
-    train_set = merge([train_list],data_shape).tolil()
-    validate_set = merge([valid_list],data_shape).tolil()
-    test_set = merge([test_list],data_shape).tolil()
-    origion_train_set=train_set.tocsr()
-    origion_test_set=test_set.tocsr()
-    origion_val_set=validate_set.tocsr()
-
-    n_user, n_item = coo.shape
-    train_user_intera_count=dict(Counter(train_set.tocoo().row).most_common(n_user))
-    train_item_intera_count = dict(Counter(train_set.tocoo().col).most_common(n_item))
-
-
-    construct_user=int(n_user*0.25)
-    sample_head_users=np.random.choice(list(train_user_intera_count.keys())[0:construct_user],
-                                replace=False,
-                                size=int(construct_user*0.5))
-    split_points = [len(sample_head_users) // 3, 2 * len(sample_head_users) // 3]
-    split_arrays = np.split(sample_head_users, split_points)
-
-    new_train_list=[e for e in train_list if e[0] not in sample_head_users]
-
-    tr_noise_set,sample_csr,cold_start_data=get_noise_train_csr( n_user, coo, origion_train_set, validate_set, test_set, split_arrays)
-
-
-    del_tr_csr=merge([new_train_list],data_shape)
-
-    train_set =del_tr_csr+sample_csr + tr_noise_set
-
-
-    for i,e in enumerate(cold_start_data):
-        cold_start_data[i]=sp.csr_matrix((e[2],(e[0],e[1])),data.shape,dtype=np.float32)
-
-    bias_group=get_bias_group(n_item,train_item_intera_count,test_list,data_shape)
-
-
-    return train_set, origion_val_set, origion_test_set,cold_start_data,bias_group
 
 def main():
     set_seed()
@@ -377,34 +202,28 @@ def main():
         os.makedirs(log_path)
     checkpoint_dir = os.path.join(log_path, 'check_point')
 
-    data = parse_data(cfg["data_path"])
-
     process_path = f"process_data/"
-    if not os.path.isdir(process_path):
-        os.makedirs(process_path)
     process_data_path = os.path.join(process_path,data_name + ".pkl")
-    if not os.path.isfile(process_data_path):
-        train_data, valid_data, test_data, cold_start_group, popularity_group = split(data)
-        process_data = {
-            "train_data": train_data,
-            "test_data": test_data,
-            "valid_data": valid_data,
-            "cold_group": cold_start_group,
-            "popularity_group": popularity_group
-        }
-        with open(process_data_path, 'wb') as f:
-            pickle.dump(process_data, f)
-    else:
-        with open(process_data_path, 'rb') as f:
-            data = pickle.load(f)
-            train_data = data["train_data"]
-            test_data = data["test_data"]
-            valid_data = data["valid_data"]
-            cold_start_group = data["cold_group"]
-            popularity_group = data["popularity_group"]
+    # if not os.path.isfile(process_data_path):
+    #     train_data, valid_data, test_data, cold_start_group, popularity_group = split(data)
+    #     process_data = {
+    #         "train_data": train_data,
+    #         "test_data": test_data,
+    #         "valid_data": valid_data,
+    #         "cold_group": cold_start_group,
+    #         "popularity_group": popularity_group
+    #     }
+    #     with open(process_data_path, 'wb') as f:
+    #         pickle.dump(process_data, f)
+
+    with open(process_data_path, 'rb') as f:
+        data = pickle.load(f)
+        train_data = data["train_data"]
+        test_data = data["test_data"]
+        valid_data = data["valid_data"]
 
     train_set, origion_val_set, origion_test_set= train_data,valid_data,test_data
-    metrics = [MAE(),NDCG5(),NDCG10(),RECALL5(),RECALL10(),Precision5(),Precision10()]
+    metrics = [MAE(),NDCG1(),NDCG2(),RECALL1(),RECALL2(),Precision1(),Precision2()]
     valid_funs = metrics
 
 
