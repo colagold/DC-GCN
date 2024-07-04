@@ -8,8 +8,6 @@
 
 ## Filefolder
 
-- Result:Optimal results and corresponding optimal hyperparameter Settings.
-
 - DC-GCN:It's a project file which concretes implementation.
 
 ## Preparation
