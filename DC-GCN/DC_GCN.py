@@ -313,30 +313,21 @@ class dcgcn(BasicModel):
         items_emb = self.embedding_item.weight
         rating_emb = self.embedding_rating.weight
 
-        embs = []  # 用于存储初始表示以及每个评分场景下的表示
+        embs = []
 
         for key, rating_tensor_graph in self.rating_group_tensor.items():
             key = int(key)
-            # 获得未加权的表示，用于图卷积
-            all_embs = torch.cat([users_emb, items_emb], dim=0)
-            # 评分表示
-            t_rating_emb = rating_emb[int(key)].repeat(all_embs.shape[0], 1)
-            # 评分表示与节点表示拼接
-            t_cat = torch.cat([all_embs, t_rating_emb], dim=1)
-            # 使用mlp融合，得到新的表示(能否有新的概念)
-            all_embs = self.atten_weight_list[int(key) - 1](t_cat)
-            users_emb_rating, items_emb_rating = torch.split(all_embs, [self.num_users, self.num_items])
 
-            # 初始化用户权重
-            u_weight = key * self.user_t.to(self.dev) * torch.pow(1 - self.user_t, 0).to(self.dev)  # 为每个用户初始化邻域聚合权重
-            # 初始化项目权重
-            i_weight = key * self.item_t.to(self.dev) * torch.pow(1 - self.item_t, 0).to(self.dev)  # 为每个项目初始化邻域聚合权重
-            gcn_ego_embeddings = torch.cat([u_weight * users_emb_rating, i_weight * items_emb_rating],
-                                           dim=0)  # 层级权重，第0层表示
-            # 保存每一层卷积的表示
-            gcn_emb_per_rating = [gcn_ego_embeddings]
-            mask_history = [all_embs]
-            # 每个子图上进行图卷积
+            all_embs = torch.cat([users_emb, items_emb], dim=0)
+
+            t_rating_emb = rating_emb[int(key)].repeat(all_embs.shape[0], 1)
+
+            t_cat = torch.cat([all_embs, t_rating_emb], dim=1)
+
+            all_embs = self.atten_weight_list[int(key) - 1](t_cat)
+
+            gcn_emb_per_rating = [all_embs]
+
             for layer in range(self.n_layers):
                 if layer >= 2:
                     mask_ratio = 1 - math.log(1 / layer + 1)
@@ -344,36 +335,23 @@ class dcgcn(BasicModel):
                     mask_ratio = 0
                 mask_tensor = self.generate_mask_matrix(self.config["latent_dim"], mask_ratio)
                 mask_tensor = mask_tensor.to(self.config['device'])
-                k = layer + 1  # 获取层数
                 all_embs = torch.sparse.mm(rating_tensor_graph, all_embs)  # 卷积
-
                 all_embs = torch.mm(all_embs, torch.diag(mask_tensor)) \
-                           + torch.mm(mask_history[-1], torch.diag(1 - mask_tensor))  # 掩码
-                mask_history.append(all_embs)
+                           + torch.mm(gcn_emb_per_rating[-1], torch.diag(1 - mask_tensor))  # 掩码
+                gcn_emb_per_rating.append(all_embs)
 
-                user_embedds, item_embedds = torch.split(all_embs, [self.num_users, self.num_items],
-                                                         dim=0)  # 得到卷积之后的用户和商品表示
-                # 每一层加权
-                user_embedds = key * user_embedds * (
-                            self.user_t.to(self.dev) * torch.pow(1 - self.user_t, k).to(self.dev))
-                item_embedds = key * item_embedds * (
-                            self.item_t.to(self.dev) * torch.pow(1 - self.item_t, k).to(self.dev))
-                # 每一层加权后的表示
-                weight_embeddings_cur = torch.cat([user_embedds, item_embedds], dim=0)
-                gcn_emb_per_rating.append(weight_embeddings_cur)
-            # 每一层GCN求和
             rating_embs = torch.sum(torch.stack(gcn_emb_per_rating, dim=1), dim=1)
             embs.append(rating_embs)  #
         if self.agg == "mean":
             embs = torch.stack(embs, dim=1)
-            light_out = torch.mean(embs, dim=1)
+            out = torch.mean(embs, dim=1)
         elif self.agg == "sum":
             embs = torch.stack(embs, dim=1)
-            light_out = torch.mean(embs, dim=1)
+            out = torch.mean(embs, dim=1)
         elif self.agg == "mlp":
             embs = torch.cat(embs, dim=1)
-            light_out = self.agg_layer(embs)
-        users, items = torch.split(light_out, [self.num_users, self.num_items])
+            out = self.agg_layer(embs)
+        users, items = torch.split(out, [self.num_users, self.num_items])
         return users, items
 
     def generate_mask_matrix(self, length, mask_rate):

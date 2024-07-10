@@ -204,17 +204,7 @@ def main():
 
     process_path = f"process_data/"
     process_data_path = os.path.join(process_path,data_name + ".pkl")
-    # if not os.path.isfile(process_data_path):
-    #     train_data, valid_data, test_data, cold_start_group, popularity_group = split(data)
-    #     process_data = {
-    #         "train_data": train_data,
-    #         "test_data": test_data,
-    #         "valid_data": valid_data,
-    #         "cold_group": cold_start_group,
-    #         "popularity_group": popularity_group
-    #     }
-    #     with open(process_data_path, 'wb') as f:
-    #         pickle.dump(process_data, f)
+
 
     with open(process_data_path, 'rb') as f:
         data = pickle.load(f)
