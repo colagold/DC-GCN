@@ -104,7 +104,7 @@ def dict_to_yamlstr(d:dict)->str:
             y = yaml.full_load(mio)
         else:
             y = yaml.load(mio)
-        return yaml.dump(y)  # 输出模型名字+参数
+        return yaml.dump(y)
 
 def get_parameters_js(js) -> dict:
     ans = None
@@ -134,7 +134,7 @@ class ExplicitRecAbstract(ModelAbstract):
         uids = torch.from_numpy(ds.row)
         iids = torch.from_numpy(ds.col)
 
-        # 将数据放入GPU
+
         uids = uids.to(self.device)
         iids = iids.to(self.device)
 
@@ -158,7 +158,7 @@ class ExplicitRecAbstract(ModelAbstract):
         loss.backward()
         self.optimizer.step()
         loss_dict = {}
-        loss_dict['loss'] = float(loss.data.cpu().numpy())  # 不管数据在gpu还是cpu都统一存入cpu
+        loss_dict['loss'] = float(loss.data.cpu().numpy())
         return loss_dict
 
     def eval_data(self, dataloader, metric) -> float:
@@ -274,7 +274,7 @@ class dcgcn(BasicModel):
         )
 
         self.atten_weight_list = torch.nn.ModuleList()
-        for _ in self.rating_group_tensor.keys():  # 不共享参数，两层的mlp
+        for _ in self.rating_group_tensor.keys():
             self.atten_weight_list.append(
                 nn.Sequential(
                     nn.Linear(in_features=config["latent_dim"] * 2, out_features=config["latent_dim"]),
@@ -335,9 +335,9 @@ class dcgcn(BasicModel):
                     mask_ratio = 0
                 mask_tensor = self.generate_mask_matrix(self.config["latent_dim"], mask_ratio)
                 mask_tensor = mask_tensor.to(self.config['device'])
-                all_embs = torch.sparse.mm(rating_tensor_graph, all_embs)  # 卷积
+                all_embs = torch.sparse.mm(rating_tensor_graph, all_embs)
                 all_embs = torch.mm(all_embs, torch.diag(mask_tensor)) \
-                           + torch.mm(gcn_emb_per_rating[-1], torch.diag(1 - mask_tensor))  # 掩码
+                           + torch.mm(gcn_emb_per_rating[-1], torch.diag(1 - mask_tensor))
                 gcn_emb_per_rating.append(all_embs)
 
             rating_embs = torch.sum(torch.stack(gcn_emb_per_rating, dim=1), dim=1)
@@ -355,16 +355,15 @@ class dcgcn(BasicModel):
         return users, items
 
     def generate_mask_matrix(self, length, mask_rate):
-        # 全1矩阵
+
         mask_matrix = torch.ones(1, length)
 
-        # 计算掩码的数量
         num_masked = int(mask_rate * length)
 
-        # 随机选择需要掩码的位置
+
         mask_indices = random.sample(range(length), num_masked)
 
-        # 将选择的位置设置为0
+
         for idx in mask_indices:
             mask_matrix[0, idx] = 0
 
@@ -372,11 +371,9 @@ class dcgcn(BasicModel):
 
     def get_mask_matrix(self, mask_ratio, latent_dim):
         tensor = torch.ones(1, latent_dim)
-        # 创建一个与输入tensor形状相同的随机0-1矩阵
+
         random_mask = torch.rand(tensor.shape)
-        # 根据给定的概率生成置0的掩码
         zero_mask = random_mask < mask_ratio
-        # 将tensor中对应位置置为0
         tensor[zero_mask] = 0
         return tensor[0]
 
@@ -459,16 +456,13 @@ class DC_GCN(ExplicitRecAbstract):
 
         self.rating_graph = _convert_sp_mat_to_sp_tensor(ds).to(self.device)
         self.num_ratings = int(max(ds.data)) + 1
-        # 按照评分划分，生成评分矩阵
 
         self.model = dcgcn(self.__dict__)
         self.model.to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.lambd)
         #
-        writer = SummaryWriter(self.tensorboard_path)  # 收集训练过程中的所有数据
+        writer = SummaryWriter(self.tensorboard_path)
 
-        # 构建训练器，trainer，自动根据训练数据、验证数据和验证函数进行验证，并将中间过程记录到writer中
-        # 需要注意的是：当前模型必须实现save，load，opt_one_batch， eval_data 函数
         trainer = TrainerBase(self.nepochs, valid_on_train_set=False)
         trainer.train(self, train_loader, valid_loader, test_loader, valid_func, writer)
 
@@ -521,29 +515,17 @@ class DC_GCN(ExplicitRecAbstract):
         return sp.csr_matrix((data,(ds.row,ds.col)),ds.shape)
 
     def opt_one_batch(self, batch) -> dict:
-        """
-        在batch数据上完成一次训练，并返回损失值，
-        返回值为一个字典，其中必须包含”loss“关键字，代表了该batch数据下计算所得的损失值，如果需要返回其他值可以自行加入该字典
-        返回到字典中的数据都将写入tensorboard中
-        """
 
-        # 在train函数中，利用RSCompleteRatingDataset对数据进行了转换，变成了 (uid，iid，rating)的元组，
-        # 在经过torch的Dataloader将之转化为batch，则 batch的数据结构为：
-        #              【(uid1,uid2,uid3,..), (iid1,iid2,iid3,...),(rating1,rating2,rating3,...)】
-
-        # 先将batch中的所有数据放到模型指定的设备上，然后再取出
         uids, iids, ratings = (x.to(self.device) for x in batch)
         ratings = ratings.to(torch.float32)
 
-        #loss = self.cal_neuralNDCG_loss(BPRLossMatrix ,self.model,uids,iids,ratings)#torch.mean(NDCGs)
-        #loss = self.cal_bpr_loss(BPRLoss, self.model.predict, uids, iids, ratings)
 
         loss = self.cal_mse_loss(self.criterion, self.model, uids, iids, ratings)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
         loss_dict = {}
-        loss_dict['loss'] = float(loss.data.cpu().numpy()) #不管数据在gpu还是cpu都统一存入cpu
+        loss_dict['loss'] = float(loss.data.cpu().numpy())
         return loss_dict
 
     def cal_neuralNDCG_loss(self,loss_func,pred_func,uid,iid,ratings):
@@ -557,7 +539,6 @@ class DC_GCN(ExplicitRecAbstract):
         nnz_idx = [np.nonzero(row)[0] for row in ratings.cpu().numpy()]
         # bounds = [ row[-1] for row in nnz_idx if len(row)>0]
 
-        # 根据rattings中的非0值，预测pred矩阵中的值。
         t_nn_idx = torch.nonzero(ratings)
         row, col = t_nn_idx[:, 0], t_nn_idx[:, 1]
         nn_uids = uid[row, col]
@@ -582,13 +563,10 @@ class DC_GCN(ExplicitRecAbstract):
 
 
     def eval_data(self, dataloader, metric) -> float:
-        """
-        负责评估所训练的模型在数据集上的性能。
-        根据传入的数据（可能是训练集，也可能是测试集，由模型的train函数决定），利用metric函数完成一次验证，并返回指标计算的结果。
-        """
+
         Y = []
         Pred = []
-        users  = [] #  因为 推荐算法的评价函数的输入是csr_matrix,这里需要记录用户id 和商品id，方便后面重构矩阵
+        users  = []
         items = []
 
         for uids, iids, ratings in dataloader:
@@ -645,7 +623,7 @@ class DC_GCN(ExplicitRecAbstract):
             noise_csr=sp.rand(shape[0], shape[1], density=density, format='csr',random_state=1)
             csr=csr+noise_csr
             csr.data[:]=key
-            res[key]=self.getSparseGraph(csr) .to(self.device) # 取出对应的DataFrame,转为CSR
+            res[key]=self.getSparseGraph(csr) .to(self.device)
 
 
         return res

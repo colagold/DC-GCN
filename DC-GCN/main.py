@@ -39,12 +39,12 @@ def set_seed(seed=2333):
 
     import random,os, torch, numpy as np
     random.seed(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)  # 为了禁止hash随机化，使得实验可复现
+    os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+        torch.cuda.manual_seed_all(seed)  #
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
 
@@ -78,12 +78,12 @@ def create_obj_from_json(js):
         for key, values in js.items():
             if need_import(key):
                 assert values is None or isinstance(values,
-                                                    dict), f"拟导入的对象{key}的值必须为dict或None，用于初始化该对象"
-                assert len(js) == 1, f"{js} 中包含了需要导入的{key}对象，不能再包含其他键值对"
+                                                    dict), f"dict or None"
+                assert len(js) == 1, f""
                 key = key[1:-1]  # 去掉 key的前后 `_`
                 cls = my_import(key)
                 if "__init__" in values:
-                    assert isinstance(values, dict), f"__init__ 关键字，放入字典对象，作为父类{key}的初始化函数"
+                    assert isinstance(values, dict), f"__init__ "
                     init_params = create_obj_from_json(values['__init__'])
                     if isinstance(init_params, dict):
                         obj = cls(**init_params)
@@ -92,7 +92,6 @@ def create_obj_from_json(js):
                     values.pop("__init__")
                 else:
                     obj = cls()
-                # 此处已经不包含 "__init__"的key，value对
                 for k, v in values.items():
                     setattr(obj, k, create_obj_from_json(v))
                 return obj

@@ -117,15 +117,7 @@ class NDCG1(MetricAbstract):
 
 
 class RECALL1(MetricAbstract):
-    """ 召回率（Recall）, 表示所有的正例样本中，有多少被模型成功地找出. 和Hit@K计算方法一样
-    正样本中被推荐的概率
-    该指标越大越好。
-     eg:
-        pred/ground_truth:
-            [1,2,3,4,7] / [2,7,9];  命中item 2, 7; RECALL_1 = 2/3
-            [1,3,4,8,9] / [4,7];    命中item 4;   RECALL_2 = 1/2
-        RECALL@5 = 1/2 * (2/3 + 1/2)
-    """
+
 
     def __init__(self):
         self.topk = 1
@@ -173,16 +165,7 @@ class RECALL2(MetricAbstract):
 
 
 class Precision1(MetricAbstract):
-    """查准率（Precision），反映推荐列表在中item的查准率，强调预测的“准确性”;
-    推荐的结果中属于正样本的概率
-    计算公式: $1/N $
-    该指标越大越好。
-    eg:
-        pred/ground_truth:
-            [1,2,3,4,7] / [2,7,9];  命中item 2, 7; precision_1 = 2/5
-            [1,3,4,8,9] / [4,7];    命中item 4;   precision_2 = 1/5
-        precision@5 = 1/2 * (2/5 + 1/5)
-    """
+
 
     def __init__(self):
         self.topk = 1
