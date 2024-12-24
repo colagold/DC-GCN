@@ -12,7 +12,7 @@ import yaml
 from collections import Counter
 from metrics import *
 
-data_dir='data/Amazon_CDs_and_Vinyl10.zip'
+data_dir='data/douban.zip'
 model_config='DC_GCN.yaml'
 data_name=data_dir.split("/")[-1].split(".")[0]
 log_path=f"log/{data_name}"
@@ -191,7 +191,7 @@ def merge( datalist,data_shape):
 
 def main():
     set_seed()
-    model_config = 'DC_GCN.yaml'
+    model_config = 'DC_GCN_dianping.yaml'
     with open(model_config, 'rb') as infile:
         cfg = yaml.safe_load(infile)
 
